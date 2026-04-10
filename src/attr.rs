@@ -251,7 +251,7 @@ mod doc_tests {
     ///         }
     ///     }
     /// }
-    ///      ///
+    ///
     /// with_doc_path!(my_mod);
     /// doc_none_group_before_double_colon();
     /// ```
