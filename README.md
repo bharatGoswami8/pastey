@@ -141,7 +141,7 @@ You can also use multiple of these modifers like `$var:snake:upper` would give y
 
 Example
 
-```rust,ignore
+```rust
 use pastey::paste;
 
 paste! {
