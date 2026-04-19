@@ -817,4 +817,27 @@ mod doc_tests {
     /// test_x(42i32);
     /// ```
     fn test_type_annotation() {}
+
+    /// ```
+    /// use pastey;
+    /// pastey::item! { fn item_macro_fn() {} }
+    /// item_macro_fn();
+    /// ```
+    fn test_item_macro() {}
+
+    /// ```
+    /// use pastey;
+    /// let v: u32 = pastey::expr! { 42u32 };
+    /// assert_eq!(v, 42);
+    /// ```
+    fn test_expr_macro() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// macro_rules! m {
+    ///     ($t:ty) => { paste! { let _s = stringify!($t::new); } }
+    /// }
+    /// m!(Vec<u8>);
+    /// ```
+    fn test_none_group_followed_by_double_colon() {}
 }

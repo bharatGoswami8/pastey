@@ -256,4 +256,43 @@ mod doc_tests {
     /// doc_none_group_before_double_colon();
     /// ```
     fn test_none_group_before_double_colon_in_attr_context() {}
+
+    /// ```compile_fail
+    /// use pastey::paste;
+    /// paste! { #[cfg_attr(not(all()), allow(x = [<@invalid>], y = "ok"))] struct S; }
+    /// ```
+    fn test_invalid_stringlike() {}
+
+    /// ```compile_fail
+    /// use pastey::paste;
+    /// paste! { #[cfg_attr(not(all()), doc = :lower :upper, allow(dead_code))] struct S; }
+    /// ```
+    fn test_expand_attr_error_in_comma_segment() {}
+
+    /// ```compile_fail
+    /// use pastey::paste;
+    /// paste! { #[cfg_attr(not(all()), doc = :lower :upper)] struct S; }
+    /// ```
+    fn test_expand_attr_error_in_final_segment() {}
+
+    /// ```compile_fail
+    /// use pastey::paste;
+    /// paste! { #[doc = "start" :] struct S; }
+    /// ```
+    fn test_do_paste_name_value_attr_parse_error() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// macro_rules! m {
+    ///     ($val:ident) => { paste! { #[doc = "Hello " $val] struct DocNoneGroupStr; } }
+    /// }
+    /// m!(world);
+    /// ```
+    fn test_is_stringlike_none_group() {}
+
+    /// ```compile_fail
+    /// use pastey::paste;
+    /// paste! { #[doc = "hello" :: "world"] struct S; }
+    /// ```
+    fn test_is_stringlike_joint_colon() {}
 }

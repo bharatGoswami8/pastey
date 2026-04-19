@@ -401,6 +401,12 @@ mod doc_tests {
     /// ```
     fn test_env_empty() {}
 
+    /// ``` compile_fail
+    /// use pastey::paste;
+    /// paste! { fn [<env!abc>]() {} }
+    /// ```
+    fn test_env_missing_args() {}
+
     /// ```compile_fail
     /// use pastey::paste;
     /// paste! { fn [<env!("CARGO_PKG_NAME" "extra")>]() {} }
@@ -490,6 +496,15 @@ mod doc_tests {
 
     /// ```compile_fail
     /// use pastey::paste;
+    /// macro_rules! m {
+    ///     ($x:expr) => { paste! { fn [<prefix_ $x _suffix>]() {} } }
+    /// }
+    /// m!(1 + 2);
+    /// ```
+    fn test_none_group_inner_parse_error() {}
+
+    /// ```compile_fail
+    /// use pastey::paste;
     /// paste! { struct [<a:replace("x"; "y")>]; }
     /// ```
     fn test_replace_wrong_separator() {}
@@ -520,4 +535,57 @@ mod doc_tests {
     /// m!(x + y);
     /// ```
     fn test_replace_from_multi_token_none_group() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// macro_rules! m {
+    ///     ($x:expr) => { paste! { const _: &str = stringify!([<hello :replace($x, "a")>]); } }
+    /// }
+    /// m!(e);
+    /// ```
+    fn test_replace_single_token_none_group() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// paste! { const _: &str = stringify!([<hello :replace(3, "a")>]); }
+    /// ```
+    fn test_replace_numeric_to_literal() {}
+
+    /// ```compile_fail
+    /// use pastey::paste;
+    /// paste! { struct [<Foo:replace(hello, +)>]; }
+    /// ```
+    fn test_replace_invalid_to_token() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// paste! { const _: &str = stringify!([<r#fn _bar>]); }
+    /// ```
+    fn test_raw_ident_fragment() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// paste! { const _: &str = stringify!([<helloWorld:snake>]); }
+    /// ```
+    fn test_snake_from_camel_case() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// paste! { const _: &str = stringify!([<hello_world:camel>]); }
+    /// ```
+    fn test_camel_with_underscore() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// paste! { const _: &str = stringify!([<hello_world:lower_camel>]); }
+    /// ```
+    fn test_lower_camel_modifier() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// paste! { const _: &str = stringify!([<STR_VALUE:camel>]); }
+    /// ```
+    fn test_camel_consecutive_uppercase() {}
+
+   
 }
