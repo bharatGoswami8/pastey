@@ -158,11 +158,13 @@ fn is_stringlike(token: &TokenTree) -> bool {
             if group.delimiter() != Delimiter::None {
                 return false;
             }
+            // Delimiter::None groups come from macro interpolation and always contain
+            // exactly one token; the `false` default handles the (unreachable) empty case.
             let mut inner = group.stream().into_iter();
-            match inner.next() {
-                Some(first) => inner.next().is_none() && is_stringlike(&first),
-                None => false,
-            }
+            inner
+                .next()
+                .map(|first| inner.next().is_none() && is_stringlike(&first))
+                .unwrap_or(false)
         }
         TokenTree::Punct(punct) => {
             punct.as_char() == '\'' || punct.as_char() == ':' && punct.spacing() == Spacing::Alone

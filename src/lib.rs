@@ -182,10 +182,12 @@ fn is_single_interpolation_group(input: &TokenStream) -> bool {
             {
                 State::Colon1
             }
-            (State::Colon1, TokenTree::Punct(punct))
-                if punct.as_char() == ':' && punct.spacing() == Spacing::Alone =>
-            {
-                State::Colon2
+            (State::Colon1, TokenTree::Punct(punct)) if punct.as_char() == ':' => {
+                if punct.spacing() == Spacing::Alone {
+                    State::Colon2
+                } else {
+                    return false;
+                }
             }
             (State::Colon2, TokenTree::Ident(_)) => State::Ident,
             _ => return false,
@@ -216,28 +218,27 @@ fn is_paste_operation(input: &TokenStream) -> bool {
 }
 
 fn parse_bracket_as_segments(input: TokenStream, scope: Span) -> Result<Vec<Segment>> {
+    let _ = scope; // pre-validated by is_paste_operation(); scope kept for future use
     let mut tokens = input.into_iter().peekable();
 
-    match &tokens.next() {
-        Some(TokenTree::Punct(punct)) if punct.as_char() == '<' => {}
-        Some(wrong) => return Err(Error::new(wrong.span(), "expected `<`")),
-        None => return Err(Error::new(scope, "expected `[< ... >]`")),
-    }
+    // is_paste_operation() guarantees the stream starts with '<'.
+    debug_assert!(matches!(
+        tokens.peek(),
+        Some(TokenTree::Punct(p)) if p.as_char() == '<'
+    ));
+    tokens.next(); // consume '<'
 
     let mut segments = segment::parse(&mut tokens)?;
 
-    match &tokens.next() {
-        Some(TokenTree::Punct(punct)) if punct.as_char() == '>' => {}
-        Some(wrong) => return Err(Error::new(wrong.span(), "expected `>`")),
-        None => return Err(Error::new(scope, "expected `[< ... >]`")),
-    }
+    // is_paste_operation() guarantees '>' follows all inner tokens.
+    debug_assert!(matches!(
+        tokens.peek(),
+        Some(TokenTree::Punct(p)) if p.as_char() == '>'
+    ));
+    tokens.next(); // consume '>'
 
-    if let Some(unexpected) = tokens.next() {
-        return Err(Error::new(
-            unexpected.span(),
-            "unexpected input, expected `[< ... >]`",
-        ));
-    }
+    // is_paste_operation() guarantees nothing follows '>'.
+    debug_assert!(tokens.peek().is_none());
 
     for segment in &mut segments {
         if let Segment::String(string) = segment {
@@ -248,6 +249,8 @@ fn parse_bracket_as_segments(input: TokenStream, scope: Span) -> Result<Vec<Segm
                         string.value.clear();
                         string.value.push(ch);
                         continue;
+                    } else {
+                        return Err(Error::new(string.span, "invalid unicode character"));
                     }
                 }
             }
@@ -280,12 +283,10 @@ fn pasted_to_tokens(mut pasted: String, span: Span) -> Result<TokenStream> {
     if pasted.starts_with(|ch: char| ch.is_ascii_digit()) {
         let literal = match panic::catch_unwind(|| Literal::from_str(&pasted)) {
             Ok(Ok(literal)) => TokenTree::Literal(literal),
-            Ok(Err(LexError { .. })) | Err(_) => {
-                return Err(Error::new(
-                    span,
-                    &format!("`{:?}` is not a valid literal", pasted),
-                ));
-            }
+            // Unreachable: segment::paste() only produces strings that are valid Rust literals,
+            // so Literal::from_str() will always succeed here.
+            Ok(Err(LexError { .. })) | Err(_) => return Err(Error::new(span,
+                    &format!("`{:?}` is not a valid literal", pasted),)),
         };
         tokens.extend(iter::once(literal));
         return Ok(tokens);
@@ -840,4 +841,38 @@ mod doc_tests {
     /// m!(Vec<u8>);
     /// ```
     fn test_none_group_followed_by_double_colon() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// macro_rules! m {
+    ///     ($t:ty) => { paste! { let _: $t = Default::default(); } }
+    /// }
+    /// m!(u8);
+    /// ```
+    fn test_none_group_followed_by_alone_colon() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// paste! { let arr: [u8; 3] = [1u8, 2, 3]; }
+    /// ```
+    fn test_non_paste_bracket_no_attr() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// macro_rules! m {
+    ///     ($x:ident: $ty:ident) => { paste! { fn [<get_ $x>]() -> $ty { Default::default() } } }
+    /// }
+    /// m!(val: u8);
+    /// assert_eq!(get_val(), 0u8);
+    /// ```
+    fn test_is_single_interp_alone_colon() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// macro_rules! m {
+    ///     ($t:path) => { paste! { type _Alias = $t; } }
+    /// }
+    /// m!(std::string::String);
+    /// ```
+    fn test_is_single_interp_path_with_generics() {}
 }

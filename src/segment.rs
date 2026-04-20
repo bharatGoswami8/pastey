@@ -47,13 +47,10 @@ pub(crate) fn parse(tokens: &mut Peekable<token_stream::IntoIter>) -> Result<Vec
                             group
                         }
                         Some(wrong) => return Err(Error::new(wrong.span(), "expected `(`")),
-                        None => {
-                            return Err(Error::new2(
-                                ident.span(),
-                                bang.span(),
-                                "expected `(` after `env!`",
-                            ));
-                        }
+                        //Unreachable: The while-loop invariant guarantees '>' is still in the stream
+                        // after '!' is consumed, so None cannot occur here.
+                        None => return Err(Error::new2(bang.span(), ident.span(),
+                                        "expected `(` after env! macro",)),
                     };
                     let mut inner = parenthesized.stream().into_iter();
                     let lit = match inner.next() {
@@ -95,10 +92,9 @@ pub(crate) fn parse(tokens: &mut Peekable<token_stream::IntoIter>) -> Result<Vec
                 }));
             }
             TokenTree::Punct(punct) => match punct.as_char() {
-                '_' => segments.push(Segment::String(LitStr {
-                    value: "_".to_owned(),
-                    span: punct.span(),
-                })),
+                // Note: '_' is always tokenised as Ident in modern Rust, never Punct.
+                // The _ case is already handled because the Ident branch (lines 30) 
+                // naturally accepts _ as a plain identifier (its ident.to_string() returns "_").
                 '\'' => segments.push(Segment::Apostrophe(punct.span())),
                 ':' => {
                     let colon_span = punct.span();
@@ -350,20 +346,19 @@ fn get_literal_string_value(l: &Literal, parse_char: bool, parse_numbers: bool) 
 }
 
 fn get_token_tree_string_value(t: &TokenTree) -> Result<String> {
+    // Unwrap single-token Delimiter::None groups produced by macro interpolation.
+    if let TokenTree::Group(group) = t {
+        if group.delimiter() == Delimiter::None {
+            let mut inner = group.stream().into_iter();
+            if let (Some(first), None) = (inner.next(), inner.next()) {
+                return get_token_tree_string_value(&first);
+            }
+            return Err(Error::new(t.span(), "Expected either Ident, or Literal."));
+        }
+    }
     match t {
         TokenTree::Ident(ident) => Ok(ident.to_string()),
         TokenTree::Literal(literal) => get_literal_string_value(literal, true, true),
-        TokenTree::Group(group) if group.delimiter() == Delimiter::None => {
-            // Handle interpolated tokens from macro_rules (common in older Rust versions)
-            let mut inner = group.stream().into_iter();
-            if let Some(first) = inner.next() {
-                if inner.next().is_none() {
-                    // Single token in the group, recursively process it
-                    return get_token_tree_string_value(&first);
-                }
-            }
-            Err(Error::new(t.span(), "Expected either Ident, or Literal."))
-        }
         _ => Err(Error::new(t.span(), "Expected either Ident, or Literal.")),
     }
 }
