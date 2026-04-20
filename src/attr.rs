@@ -163,8 +163,7 @@ fn is_stringlike(token: &TokenTree) -> bool {
             let mut inner = group.stream().into_iter();
             inner
                 .next()
-                .map(|first| inner.next().is_none() && is_stringlike(&first))
-                .unwrap_or(false)
+                .map_or(false, |first| inner.next().is_none() && is_stringlike(&first))
         }
         TokenTree::Punct(punct) => {
             punct.as_char() == '\'' || punct.as_char() == ':' && punct.spacing() == Spacing::Alone

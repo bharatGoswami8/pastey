@@ -18,7 +18,7 @@ use crate::attr::expand_attr;
 use crate::error::{Error, Result};
 use crate::segment::Segment;
 use proc_macro::{
-    Delimiter, Group, Ident, LexError, Literal, Punct, Spacing, Span, TokenStream, TokenTree,
+    Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenStream, TokenTree,
 };
 use std::char;
 use std::iter;
@@ -182,12 +182,10 @@ fn is_single_interpolation_group(input: &TokenStream) -> bool {
             {
                 State::Colon1
             }
-            (State::Colon1, TokenTree::Punct(punct)) if punct.as_char() == ':' => {
-                if punct.spacing() == Spacing::Alone {
-                    State::Colon2
-                } else {
-                    return false;
-                }
+            (State::Colon1, TokenTree::Punct(punct))
+                if punct.as_char() == ':' && punct.spacing() == Spacing::Alone =>
+            {
+                State::Colon2
             }
             (State::Colon2, TokenTree::Ident(_)) => State::Ident,
             _ => return false,
@@ -244,15 +242,11 @@ fn parse_bracket_as_segments(input: TokenStream, scope: Span) -> Result<Vec<Segm
         if let Segment::String(string) = segment {
             if string.value.starts_with("'\\u{") {
                 let hex = &string.value[4..string.value.len() - 2];
-                if let Ok(unsigned) = u32::from_str_radix(hex, 16) {
-                    if let Some(ch) = char::from_u32(unsigned) {
-                        string.value.clear();
-                        string.value.push(ch);
-                        continue;
-                    } else {
-                        return Err(Error::new(string.span, "invalid unicode character"));
-                    }
-                }
+                // The Rust tokenizer guarantees the hex is valid and the codepoint is valid.
+                let ch = char::from_u32(u32::from_str_radix(hex, 16).unwrap()).unwrap();
+                string.value.clear();
+                string.value.push(ch);
+                continue;
             }
             if string.value.contains(&['\\', '.', '+'][..])
                 || string.value.starts_with("b'")
@@ -281,13 +275,8 @@ fn pasted_to_tokens(mut pasted: String, span: Span) -> Result<TokenStream> {
     let mut tokens = TokenStream::new();
 
     if pasted.starts_with(|ch: char| ch.is_ascii_digit()) {
-        let literal = match panic::catch_unwind(|| Literal::from_str(&pasted)) {
-            Ok(Ok(literal)) => TokenTree::Literal(literal),
-            // Unreachable: segment::paste() only produces strings that are valid Rust literals,
-            // so Literal::from_str() will always succeed here.
-            Ok(Err(LexError { .. })) | Err(_) => return Err(Error::new(span,
-                    &format!("`{:?}` is not a valid literal", pasted),)),
-        };
+        // segment::paste() only produces valid Rust literals, so from_str is infallible here.
+        let literal = TokenTree::Literal(Literal::from_str(&pasted).unwrap());
         tokens.extend(iter::once(literal));
         return Ok(tokens);
     }

@@ -38,19 +38,16 @@ pub(crate) fn parse(tokens: &mut Peekable<token_stream::IntoIter>) -> Result<Vec
                         _ => false,
                     }
                 {
-                    let bang = tokens.next().unwrap(); // `!`
-                    let expect_group = tokens.next();
+                    let _bang = tokens.next().unwrap();
+                    // while-loop invariant: `>` is still in the stream, so next() is non-None
+                    let expect_group = tokens.next().unwrap();
                     let parenthesized = match &expect_group {
-                        Some(TokenTree::Group(group))
+                        TokenTree::Group(group)
                             if group.delimiter() == Delimiter::Parenthesis =>
                         {
                             group
                         }
-                        Some(wrong) => return Err(Error::new(wrong.span(), "expected `(`")),
-                        //Unreachable: The while-loop invariant guarantees '>' is still in the stream
-                        // after '!' is consumed, so None cannot occur here.
-                        None => return Err(Error::new2(bang.span(), ident.span(),
-                                        "expected `(` after env! macro",)),
+                        wrong => return Err(Error::new(wrong.span(), "expected `(`")),
                     };
                     let mut inner = parenthesized.stream().into_iter();
                     let lit = match inner.next() {
