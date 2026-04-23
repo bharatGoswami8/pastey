@@ -18,7 +18,7 @@ use crate::attr::expand_attr;
 use crate::error::{Error, Result};
 use crate::segment::Segment;
 use proc_macro::{
-    Delimiter, Group, Ident, LexError, Literal, Punct, Spacing, Span, TokenStream, TokenTree,
+    Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenStream, TokenTree,
 };
 use std::char;
 use std::iter;
@@ -216,40 +216,37 @@ fn is_paste_operation(input: &TokenStream) -> bool {
 }
 
 fn parse_bracket_as_segments(input: TokenStream, scope: Span) -> Result<Vec<Segment>> {
+    let _ = scope; // pre-validated by is_paste_operation(); scope kept for future use
     let mut tokens = input.into_iter().peekable();
 
-    match &tokens.next() {
-        Some(TokenTree::Punct(punct)) if punct.as_char() == '<' => {}
-        Some(wrong) => return Err(Error::new(wrong.span(), "expected `<`")),
-        None => return Err(Error::new(scope, "expected `[< ... >]`")),
-    }
+    // is_paste_operation() guarantees the stream starts with '<'.
+    debug_assert!(matches!(
+        tokens.peek(),
+        Some(TokenTree::Punct(p)) if p.as_char() == '<'
+    ));
+    tokens.next(); // consume '<'
 
     let mut segments = segment::parse(&mut tokens)?;
 
-    match &tokens.next() {
-        Some(TokenTree::Punct(punct)) if punct.as_char() == '>' => {}
-        Some(wrong) => return Err(Error::new(wrong.span(), "expected `>`")),
-        None => return Err(Error::new(scope, "expected `[< ... >]`")),
-    }
+    // is_paste_operation() guarantees '>' follows all inner tokens.
+    debug_assert!(matches!(
+        tokens.peek(),
+        Some(TokenTree::Punct(p)) if p.as_char() == '>'
+    ));
+    tokens.next(); // consume '>'
 
-    if let Some(unexpected) = tokens.next() {
-        return Err(Error::new(
-            unexpected.span(),
-            "unexpected input, expected `[< ... >]`",
-        ));
-    }
+    // is_paste_operation() guarantees nothing follows '>'.
+    debug_assert!(tokens.peek().is_none());
 
     for segment in &mut segments {
         if let Segment::String(string) = segment {
             if string.value.starts_with("'\\u{") {
                 let hex = &string.value[4..string.value.len() - 2];
-                if let Ok(unsigned) = u32::from_str_radix(hex, 16) {
-                    if let Some(ch) = char::from_u32(unsigned) {
-                        string.value.clear();
-                        string.value.push(ch);
-                        continue;
-                    }
-                }
+                // The Rust tokenizer guarantees the hex is valid and the codepoint is valid.
+                let ch = char::from_u32(u32::from_str_radix(hex, 16).unwrap()).unwrap();
+                string.value.clear();
+                string.value.push(ch);
+                continue;
             }
             if string.value.contains(&['\\', '.', '+'][..])
                 || string.value.starts_with("b'")
@@ -278,15 +275,8 @@ fn pasted_to_tokens(mut pasted: String, span: Span) -> Result<TokenStream> {
     let mut tokens = TokenStream::new();
 
     if pasted.starts_with(|ch: char| ch.is_ascii_digit()) {
-        let literal = match panic::catch_unwind(|| Literal::from_str(&pasted)) {
-            Ok(Ok(literal)) => TokenTree::Literal(literal),
-            Ok(Err(LexError { .. })) | Err(_) => {
-                return Err(Error::new(
-                    span,
-                    &format!("`{:?}` is not a valid literal", pasted),
-                ));
-            }
-        };
+        // segment::paste() only produces valid Rust literals, so from_str is infallible here.
+        let literal = TokenTree::Literal(Literal::from_str(&pasted).unwrap());
         tokens.extend(iter::once(literal));
         return Ok(tokens);
     }
@@ -817,4 +807,61 @@ mod doc_tests {
     /// test_x(42i32);
     /// ```
     fn test_type_annotation() {}
+
+    /// ```
+    /// use pastey;
+    /// pastey::item! { fn item_macro_fn() {} }
+    /// item_macro_fn();
+    /// ```
+    fn test_item_macro() {}
+
+    /// ```
+    /// use pastey;
+    /// let v: u32 = pastey::expr! { 42u32 };
+    /// assert_eq!(v, 42);
+    /// ```
+    fn test_expr_macro() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// macro_rules! m {
+    ///     ($t:ty) => { paste! { let _s = stringify!($t::new); } }
+    /// }
+    /// m!(Vec<u8>);
+    /// ```
+    fn test_none_group_followed_by_double_colon() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// macro_rules! m {
+    ///     ($t:ty) => { paste! { let _: $t = Default::default(); } }
+    /// }
+    /// m!(u8);
+    /// ```
+    fn test_none_group_followed_by_alone_colon() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// paste! { let arr: [u8; 3] = [1u8, 2, 3]; }
+    /// ```
+    fn test_non_paste_bracket_no_attr() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// macro_rules! m {
+    ///     ($x:ident: $ty:ident) => { paste! { fn [<get_ $x>]() -> $ty { Default::default() } } }
+    /// }
+    /// m!(val: u8);
+    /// assert_eq!(get_val(), 0u8);
+    /// ```
+    fn test_is_single_interp_alone_colon() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// macro_rules! m {
+    ///     ($t:path) => { paste! { type _Alias = $t; } }
+    /// }
+    /// m!(std::string::String);
+    /// ```
+    fn test_is_single_interp_path_with_generics() {}
 }

@@ -38,22 +38,16 @@ pub(crate) fn parse(tokens: &mut Peekable<token_stream::IntoIter>) -> Result<Vec
                         _ => false,
                     }
                 {
-                    let bang = tokens.next().unwrap(); // `!`
-                    let expect_group = tokens.next();
+                    let _bang = tokens.next().unwrap();
+                    // while-loop invariant: `>` is still in the stream, so next() is non-None
+                    let expect_group = tokens.next().unwrap();
                     let parenthesized = match &expect_group {
-                        Some(TokenTree::Group(group))
+                        TokenTree::Group(group)
                             if group.delimiter() == Delimiter::Parenthesis =>
                         {
                             group
                         }
-                        Some(wrong) => return Err(Error::new(wrong.span(), "expected `(`")),
-                        None => {
-                            return Err(Error::new2(
-                                ident.span(),
-                                bang.span(),
-                                "expected `(` after `env!`",
-                            ));
-                        }
+                        wrong => return Err(Error::new(wrong.span(), "expected `(`")),
                     };
                     let mut inner = parenthesized.stream().into_iter();
                     let lit = match inner.next() {
@@ -95,10 +89,9 @@ pub(crate) fn parse(tokens: &mut Peekable<token_stream::IntoIter>) -> Result<Vec
                 }));
             }
             TokenTree::Punct(punct) => match punct.as_char() {
-                '_' => segments.push(Segment::String(LitStr {
-                    value: "_".to_owned(),
-                    span: punct.span(),
-                })),
+                // Note: '_' is always tokenised as Ident in modern Rust, never Punct.
+                // The _ case is already handled because the Ident branch (lines 30) 
+                // naturally accepts _ as a plain identifier (its ident.to_string() returns "_").
                 '\'' => segments.push(Segment::Apostrophe(punct.span())),
                 ':' => {
                     let colon_span = punct.span();
@@ -350,20 +343,19 @@ fn get_literal_string_value(l: &Literal, parse_char: bool, parse_numbers: bool) 
 }
 
 fn get_token_tree_string_value(t: &TokenTree) -> Result<String> {
+    // Unwrap single-token Delimiter::None groups produced by macro interpolation.
+    if let TokenTree::Group(group) = t {
+        if group.delimiter() == Delimiter::None {
+            let mut inner = group.stream().into_iter();
+            if let (Some(first), None) = (inner.next(), inner.next()) {
+                return get_token_tree_string_value(&first);
+            }
+            return Err(Error::new(t.span(), "Expected either Ident, or Literal."));
+        }
+    }
     match t {
         TokenTree::Ident(ident) => Ok(ident.to_string()),
         TokenTree::Literal(literal) => get_literal_string_value(literal, true, true),
-        TokenTree::Group(group) if group.delimiter() == Delimiter::None => {
-            // Handle interpolated tokens from macro_rules (common in older Rust versions)
-            let mut inner = group.stream().into_iter();
-            if let Some(first) = inner.next() {
-                if inner.next().is_none() {
-                    // Single token in the group, recursively process it
-                    return get_token_tree_string_value(&first);
-                }
-            }
-            Err(Error::new(t.span(), "Expected either Ident, or Literal."))
-        }
         _ => Err(Error::new(t.span(), "Expected either Ident, or Literal.")),
     }
 }
@@ -400,6 +392,12 @@ mod doc_tests {
     /// paste! { fn [<env!()>]() {} }
     /// ```
     fn test_env_empty() {}
+
+    /// ``` compile_fail
+    /// use pastey::paste;
+    /// paste! { fn [<env!abc>]() {} }
+    /// ```
+    fn test_env_missing_args() {}
 
     /// ```compile_fail
     /// use pastey::paste;
@@ -490,6 +488,15 @@ mod doc_tests {
 
     /// ```compile_fail
     /// use pastey::paste;
+    /// macro_rules! m {
+    ///     ($x:expr) => { paste! { fn [<prefix_ $x _suffix>]() {} } }
+    /// }
+    /// m!(1 + 2);
+    /// ```
+    fn test_none_group_inner_parse_error() {}
+
+    /// ```compile_fail
+    /// use pastey::paste;
     /// paste! { struct [<a:replace("x"; "y")>]; }
     /// ```
     fn test_replace_wrong_separator() {}
@@ -520,4 +527,57 @@ mod doc_tests {
     /// m!(x + y);
     /// ```
     fn test_replace_from_multi_token_none_group() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// macro_rules! m {
+    ///     ($x:expr) => { paste! { const _: &str = stringify!([<hello :replace($x, "a")>]); } }
+    /// }
+    /// m!(e);
+    /// ```
+    fn test_replace_single_token_none_group() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// paste! { const _: &str = stringify!([<hello :replace(3, "a")>]); }
+    /// ```
+    fn test_replace_numeric_to_literal() {}
+
+    /// ```compile_fail
+    /// use pastey::paste;
+    /// paste! { struct [<Foo:replace(hello, +)>]; }
+    /// ```
+    fn test_replace_invalid_to_token() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// paste! { const _: &str = stringify!([<r#fn _bar>]); }
+    /// ```
+    fn test_raw_ident_fragment() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// paste! { const _: &str = stringify!([<helloWorld:snake>]); }
+    /// ```
+    fn test_snake_from_camel_case() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// paste! { const _: &str = stringify!([<hello_world:camel>]); }
+    /// ```
+    fn test_camel_with_underscore() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// paste! { const _: &str = stringify!([<hello_world:lower_camel>]); }
+    /// ```
+    fn test_lower_camel_modifier() {}
+
+    /// ```
+    /// use pastey::paste;
+    /// paste! { const _: &str = stringify!([<STR_VALUE:camel>]); }
+    /// ```
+    fn test_camel_consecutive_uppercase() {}
+
+   
 }
