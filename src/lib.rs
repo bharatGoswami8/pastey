@@ -17,7 +17,7 @@ mod segment;
 use crate::attr::expand_attr;
 use crate::error::{Error, Result};
 use crate::segment::Segment;
-use proc_macro::{
+use proc_macro2::{
     Delimiter, Group, Ident, LexError, Literal, Punct, Spacing, Span, TokenStream, TokenTree,
 };
 use std::char;
@@ -26,14 +26,10 @@ use std::panic;
 use std::str::FromStr;
 
 #[proc_macro]
-pub fn paste(input: TokenStream) -> TokenStream {
+pub fn paste(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input: TokenStream = input.into();
     let mut contains_paste = false;
-    let flatten_single_interpolation = true;
-    match expand(
-        input.clone(),
-        &mut contains_paste,
-        flatten_single_interpolation,
-    ) {
+    let result = match expand(input.clone(), &mut contains_paste, true) {
         Ok(expanded) => {
             if contains_paste {
                 expanded
@@ -42,18 +38,19 @@ pub fn paste(input: TokenStream) -> TokenStream {
             }
         }
         Err(err) => err.to_compile_error(),
-    }
+    };
+    result.into()
 }
 
 #[doc(hidden)]
 #[proc_macro]
-pub fn item(input: TokenStream) -> TokenStream {
+pub fn item(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     paste(input)
 }
 
 #[doc(hidden)]
 #[proc_macro]
-pub fn expr(input: TokenStream) -> TokenStream {
+pub fn expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     paste(input)
 }
 
@@ -817,4 +814,65 @@ mod doc_tests {
     /// test_x(42i32);
     /// ```
     fn test_type_annotation() {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    macro_rules! faulty_ts {
+        ($func:ident, $input:expr) => {{
+            let ts = TokenStream::from_str($input).unwrap();
+            let _ = $func(&ts);
+        }};
+        ($func:ident, $input:expr, span) => {{
+            let ts = TokenStream::from_str($input).unwrap();
+            let _ = $func(ts, Span::call_site());
+        }};
+    }
+
+    #[test]
+    fn test_is_single_interpolation_group_paths() {
+        faulty_ts!(is_single_interpolation_group, "foo");
+        faulty_ts!(is_single_interpolation_group, "42");
+        faulty_ts!(is_single_interpolation_group, "'a");
+        faulty_ts!(is_single_interpolation_group, "std::string::String");
+        faulty_ts!(is_single_interpolation_group, "");
+        faulty_ts!(is_single_interpolation_group, "a b");
+        faulty_ts!(is_single_interpolation_group, "(a)");
+    }
+
+    #[test]
+    fn test_is_paste_operation_paths() {
+        faulty_ts!(is_paste_operation, "< foo >");
+        faulty_ts!(is_paste_operation, "foo >");
+        faulty_ts!(is_paste_operation, "");
+        faulty_ts!(is_paste_operation, "< foo");
+        faulty_ts!(is_paste_operation, "< >");
+        faulty_ts!(is_paste_operation, "< foo > bar");
+    }
+
+    #[test]
+    fn test_parse_bracket_as_segments_paths() {
+        faulty_ts!(parse_bracket_as_segments, "< foo >", span);
+        faulty_ts!(parse_bracket_as_segments, "< 'a >", span);
+        faulty_ts!(parse_bracket_as_segments, "< r\"hello\" >", span);
+        faulty_ts!(parse_bracket_as_segments, "< 'x' >", span);
+        faulty_ts!(parse_bracket_as_segments, "", span);
+        faulty_ts!(parse_bracket_as_segments, "foo", span);
+        faulty_ts!(parse_bracket_as_segments, "< foo", span);
+        faulty_ts!(parse_bracket_as_segments, "< foo +", span);
+        faulty_ts!(parse_bracket_as_segments, "< foo > bar", span);
+    }
+
+    #[test]
+    fn test_pasted_to_tokens_paths() {
+        let _ = pasted_to_tokens("42".to_string(), Span::call_site());
+        let _ = pasted_to_tokens("'a".to_string(), Span::call_site());
+        let _ = pasted_to_tokens("r#foo".to_string(), Span::call_site());
+        let _ = pasted_to_tokens("foo".to_string(), Span::call_site());
+        let result = pasted_to_tokens("+".to_string(), Span::call_site());
+        assert!(result.is_err());
+    }
 }
