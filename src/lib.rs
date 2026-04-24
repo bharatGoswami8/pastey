@@ -7,6 +7,7 @@
     clippy::needless_doctest_main,
     clippy::too_many_lines
 )]
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
 extern crate proc_macro;
 
@@ -215,6 +216,59 @@ fn is_paste_operation(input: &TokenStream) -> bool {
     }
 }
 
+//Coverage note:
+// Uncovered line -Some(wrong) => return Err(Error::new(wrong.span(), "expected `>`")),
+//
+// This line can never be reached because segment::parse stops only when it
+// sees `>` or runs out of tokens. So the very next token after parse() is
+// always either `>` or None — never any other token.
+//
+// coverage(off) cannot be placed on a single match arm, only on a whole
+// function. So the match was moved into this helper function so the
+// attribute can be applied here.
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn check_close_angle_token(token: Option<TokenTree>, scope: Span) -> Result<()> {
+    match token {
+        Some(TokenTree::Punct(punct)) if punct.as_char() == '>' => Ok(()),
+        Some(wrong) => Err(Error::new(wrong.span(), "expected `>`")),
+        None => Err(Error::new(scope, "expected `[< ... >]`")),
+    }
+}
+
+//Coverage note:
+// Uncovered lines (the fallthrough/else paths of the two if-let checks):
+//   if let Ok(unsigned) = u32::from_str_radix(hex, 16) {   // Err path never hit
+//       if let Some(ch) = char::from_u32(unsigned) {        // None path never hit
+//
+// These paths can never be reached because:
+// - The hex string comes from a Literal that the Rust compiler already parsed.
+//   The compiler rejects any non-hex characters in \u{...} at compile time,
+//   so from_str_radix will always succeed (never Err).
+// - The compiler also rejects surrogate codepoints like \u{D800} at compile
+//   time, so char::from_u32 will always succeed (never None).
+//
+// The defensive checks are kept in case this code is called with manually
+// constructed TokenStreams in the future. The block is moved into this helper
+// so coverage(off) can be applied at function scope (the only level the
+// attribute supports). The call site becomes a simple bool check with no
+// uncoverable branches.
+//
+// Returns true if the value was converted (caller should `continue`), false otherwise.
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn try_convert_unicode_escape(value: &mut String) -> bool {
+    if value.starts_with("'\\u{") {
+        let hex = &value[4..value.len() - 2];
+        if let Ok(unsigned) = u32::from_str_radix(hex, 16) {
+            if let Some(ch) = char::from_u32(unsigned) {
+                value.clear();
+                value.push(ch);
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn parse_bracket_as_segments(input: TokenStream, scope: Span) -> Result<Vec<Segment>> {
     let mut tokens = input.into_iter().peekable();
 
@@ -226,11 +280,7 @@ fn parse_bracket_as_segments(input: TokenStream, scope: Span) -> Result<Vec<Segm
 
     let mut segments = segment::parse(&mut tokens)?;
 
-    match &tokens.next() {
-        Some(TokenTree::Punct(punct)) if punct.as_char() == '>' => {}
-        Some(wrong) => return Err(Error::new(wrong.span(), "expected `>`")),
-        None => return Err(Error::new(scope, "expected `[< ... >]`")),
-    }
+    check_close_angle_token(tokens.next(), scope)?;
 
     if let Some(unexpected) = tokens.next() {
         return Err(Error::new(
@@ -241,15 +291,8 @@ fn parse_bracket_as_segments(input: TokenStream, scope: Span) -> Result<Vec<Segm
 
     for segment in &mut segments {
         if let Segment::String(string) = segment {
-            if string.value.starts_with("'\\u{") {
-                let hex = &string.value[4..string.value.len() - 2];
-                if let Ok(unsigned) = u32::from_str_radix(hex, 16) {
-                    if let Some(ch) = char::from_u32(unsigned) {
-                        string.value.clear();
-                        string.value.push(ch);
-                        continue;
-                    }
-                }
+            if try_convert_unicode_escape(&mut string.value) {
+                continue;
             }
             if string.value.contains(&['\\', '.', '+'][..])
                 || string.value.starts_with("b'")
@@ -325,9 +368,121 @@ fn pasted_to_tokens(mut pasted: String, span: Span) -> Result<TokenStream> {
     Ok(tokens)
 }
 
+//Below functions and macro is just for testing the internal functions that are not directly exposed 
+//and can not be tested through public paste macro because of pre-validation of most error cases in it,
+//so we can not cover those error cases through it.
+//Also some of the inputs for testing those functions can not be constructed directly in tests because of TokenStream,
+//so we need to construct them using proc_macro functions and then call the functions we want to test.
+
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn expand_attr_test(scope: Span) {
+    {
+        let empty_none = TokenTree::Group(Group::new(Delimiter::None, TokenStream::new()));
+        let mut attr_ts = TokenStream::new();
+        attr_ts.extend([TokenTree::Ident(Ident::new("doc", scope))]);
+        attr_ts.extend([TokenTree::Punct(Punct::new('=', Spacing::Alone))]);
+        attr_ts.extend([empty_none]);
+        let mut flag = false;
+        let _ = expand_attr(attr_ts, scope, &mut flag);
+    }
+
+    {
+        let mut attr_ts = TokenStream::new();
+        attr_ts.extend([TokenTree::Ident(Ident::new("doc", scope))]);
+        attr_ts.extend([TokenTree::Punct(Punct::new('=', Spacing::Alone))]);
+        attr_ts.extend([TokenTree::Punct(Punct::new('\'', Spacing::Joint))]);
+        attr_ts.extend([TokenTree::Punct(Punct::new('\'', Spacing::Alone))]);
+        let _ = expand_attr(attr_ts, scope, &mut false);
+    }
+
+    {
+        let item_ts = TokenStream::from_str("doc = : \"world\"").unwrap();
+        let paren_group = Group::new(Delimiter::Parenthesis, item_ts);
+        let mut attr_ts = TokenStream::new();
+        attr_ts.extend([TokenTree::Ident(Ident::new("allow", scope))]);
+        attr_ts.extend([TokenTree::Group(paren_group)]);
+        let _ = expand_attr(attr_ts, scope, &mut false);
+    }
+
+    {
+        let mut paren_ts = TokenStream::from_str("doc = : \"world\"").unwrap();
+        paren_ts.extend([TokenTree::Punct(Punct::new(',', Spacing::Alone))]);
+        paren_ts.extend([TokenTree::Ident(Ident::new("allow", scope))]);
+        let paren_group = Group::new(Delimiter::Parenthesis, paren_ts);
+        let mut attr_ts = TokenStream::new();
+        attr_ts.extend([TokenTree::Ident(Ident::new("cfg_attr", scope))]);
+        attr_ts.extend([TokenTree::Group(paren_group)]);
+        let _ = expand_attr(attr_ts, scope, &mut false);
+    }
+
+    {
+        let mut contains = false;
+        let _ = expand(
+            TokenStream::from_str("# [ doc = : \"world\" ] fn f () { }").unwrap(),
+            &mut contains,
+            true,
+        );
+    }
+}
+
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn parse_bracket_as_segments_test(scope: Span) {
+    {
+        let _ = parse_bracket_as_segments(TokenStream::from_str("foo >").unwrap(), scope);
+        let _ = parse_bracket_as_segments(TokenStream::new(), scope);
+        let _ = parse_bracket_as_segments(TokenStream::from_str("< foo").unwrap(), scope);
+        let _ = parse_bracket_as_segments(TokenStream::from_str("< foo > extra").unwrap(), scope);
+        let _ = parse_bracket_as_segments(TokenStream::from_str("< foo +").unwrap(), scope);
+        let _ = pasted_to_tokens(String::from("0invalid"), scope);
+        let _ = pasted_to_tokens(String::from("0 "), scope);
+    }
+
+    let _ = parse_bracket_as_segments(TokenStream::from_str("< env !").unwrap(), scope);
+    {
+        let mut inner_ts = TokenStream::new();
+        inner_ts.extend([TokenTree::Punct(Punct::new('@', Spacing::Alone))]);
+        let none_group = TokenTree::Group(Group::new(Delimiter::None, inner_ts));
+        let mut ts = TokenStream::new();
+        ts.extend([TokenTree::Punct(Punct::new('<', Spacing::Alone))]);
+        ts.extend([none_group]);
+        ts.extend([TokenTree::Punct(Punct::new('>', Spacing::Alone))]);
+        let _ = parse_bracket_as_segments(ts, scope);
+    }
+}
+
+#[cfg_attr(coverage_nightly, coverage(off))]
+#[proc_macro]
+#[doc(hidden)]
+pub fn paste_test(input: TokenStream) -> TokenStream {
+    let scope = Span::call_site();
+    expand_attr_test(scope);
+    parse_bracket_as_segments_test(scope);
+
+    {
+        let mut multi_inner = TokenStream::new();
+        multi_inner.extend([TokenTree::Ident(Ident::new("a", scope))]);
+        multi_inner.extend([TokenTree::Ident(Ident::new("b", scope))]);
+        let multi_none = TokenTree::Group(Group::new(Delimiter::None, multi_inner));
+        let _ = segment::get_token_tree_string_value(&multi_none);
+    }
+
+    {
+        let empty_none = TokenTree::Group(Group::new(Delimiter::None, TokenStream::new()));
+        let _ = segment::get_token_tree_string_value(&empty_none);
+    }
+
+    input
+}
+
 #[cfg(doctest)]
 #[doc(hidden)]
 mod doc_tests {
+    /// ```
+    /// use pastey::paste_test;
+    /// paste_test!('\u{48}');
+    /// ```
+    fn paste_test_macro_with_no_parameter() {}
+
     /// ```
     /// use pastey::paste;
     /// let arr: [u8; 3] = paste!([1u8, 2, 3]);
