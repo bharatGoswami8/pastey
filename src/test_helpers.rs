@@ -1,8 +1,8 @@
-// These functions are used to test the `expand_attr` and `parse_bracket_as_segments` functions,
-// Which can not be called directly from the test suite because they are not public API.
-// and also as unit test also can not be used due to the `proc_macro` crate's limitations in unit tests.
-// Coverage is off for these functions because these are just helper function for testing,
-// and we are not using in production code, so we don't need to cover them.
+// These functions test `expand_attr` and `parse_bracket_as_segments`, which cannot be called
+// directly through the public API because most error cases are pre-validated before reaching them.
+// Unit tests cannot be used either, since the `proc_macro` crate is unavailable outside a
+// proc macro execution context. Coverage is disabled because these are internal test helpers,
+// not production code.
 
 use crate::attr::expand_attr;
 use proc_macro::{Delimiter, Group, Ident, Punct, Spacing, Span, TokenStream, TokenTree};

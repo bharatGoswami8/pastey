@@ -14,6 +14,7 @@ extern crate proc_macro;
 mod attr;
 mod error;
 mod segment;
+#[cfg(coverage_nightly)]
 mod test_helpers;
 
 use crate::attr::expand_attr;
@@ -377,7 +378,8 @@ fn pasted_to_tokens(mut pasted: String, span: Span) -> Result<TokenStream> {
 // so we can not cover those error cases through it.
 // Also some of the inputs for testing those functions can not be constructed directly in tests because of TokenStream,
 // so we need to construct them using proc_macro functions and then call the functions we want to test.
-#[cfg_attr(coverage_nightly, coverage(off))]
+#[cfg(coverage_nightly)]
+#[coverage(off)]
 #[proc_macro]
 #[doc(hidden)]
 pub fn paste_test(input: TokenStream) -> TokenStream {
@@ -398,9 +400,10 @@ pub fn paste_test(input: TokenStream) -> TokenStream {
         let _ = segment::get_token_tree_string_value(&empty_none);
     }
 
-    // Prepend a guard so calling paste_test! is a compile error.
+    // Emit compile_error! unconditionally into the output so any call site that
+    // reaches the compiler gets the intended error message directly.
     let mut out = TokenStream::from_str(
-        "#compile_error!(\"paste_test! is for internal coverage testing only and must not be called outside of test context\");",
+        "compile_error!(\"paste_test! is for internal coverage testing only and must not be called outside of test context\");",
     )
     .unwrap();
     out.extend(input);
