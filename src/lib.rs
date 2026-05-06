@@ -594,6 +594,12 @@ mod doc_tests {
 
     /// ```compile_fail
     /// use pastey::paste;
+    /// paste! { fn [<x b'y'>]() {} }
+    /// ```
+    fn test_error_unsupported_byte_char_literal() {}
+
+    /// ```compile_fail
+    /// use pastey::paste;
     /// paste! { const _: &str = [<br"raw_byte">]; }
     /// ```
     fn test_error_unsupported_raw_byte_string() {}
