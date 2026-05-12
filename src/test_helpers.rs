@@ -68,6 +68,73 @@ pub(super) fn expand_attr_test(scope: Span) {
             true,
         );
     }
+
+    {
+        let mut ts = TokenStream::new();
+        ts.extend([
+            TokenTree::Group(Group::new(
+                Delimiter::None,
+                TokenStream::from_str("x").unwrap(),
+            )),
+            TokenTree::Punct(Punct::new(':', Spacing::Alone)),
+            TokenTree::Punct(Punct::new('@', Spacing::Alone)),
+        ]);
+        let _ = expand(ts, &mut false, false);
+    }
+
+    {
+        let mut inner_bracket = TokenStream::new();
+        inner_bracket.extend([
+            TokenTree::Punct(Punct::new('<', Spacing::Alone)),
+            TokenTree::Ident(Ident::new("foo", scope)),
+            TokenTree::Punct(Punct::new('+', Spacing::Alone)),
+            TokenTree::Ident(Ident::new("bar", scope)),
+            TokenTree::Punct(Punct::new('>', Spacing::Alone)),
+        ]);
+        let bracket = TokenTree::Group(Group::new(Delimiter::Bracket, inner_bracket));
+        let mut paren_inner = TokenStream::new();
+        paren_inner.extend([bracket]);
+        let paren_ts = TokenStream::from(TokenTree::Group(Group::new(
+            Delimiter::Parenthesis,
+            paren_inner,
+        )));
+        let _ = expand(paren_ts, &mut false, false);
+    }
+
+    {
+        let mut inner = TokenStream::new();
+        inner.extend([
+            TokenTree::Ident(Ident::new("x", scope)),
+            TokenTree::Punct(Punct::new(':', Spacing::Alone)),
+        ]);
+        let mut ts = TokenStream::new();
+        ts.extend([TokenTree::Group(Group::new(Delimiter::None, inner))]);
+        let _ = expand(ts, &mut false, true);
+    }
+
+    {
+        let mut inner = TokenStream::new();
+        inner.extend([
+            TokenTree::Ident(Ident::new("x", scope)),
+            TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+            TokenTree::Punct(Punct::new('@', Spacing::Alone)),
+        ]);
+        let mut ts = TokenStream::new();
+        ts.extend([TokenTree::Group(Group::new(Delimiter::None, inner))]);
+        let _ = expand(ts, &mut false, true);
+    }
+
+    {
+        let mut inner = TokenStream::new();
+        inner.extend([
+            TokenTree::Ident(Ident::new("x", scope)),
+            TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+            TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+        ]);
+        let mut ts = TokenStream::new();
+        ts.extend([TokenTree::Group(Group::new(Delimiter::None, inner))]);
+        let _ = expand(ts, &mut false, true);
+    }
 }
 
 #[cfg_attr(coverage_nightly, coverage(off))]
@@ -88,6 +155,16 @@ pub(super) fn parse_bracket_as_segments_test(scope: Span) {
         ts.extend([
             TokenTree::Punct(Punct::new('<', Spacing::Alone)),
             TokenTree::Group(Group::new(Delimiter::None, inner_ts)),
+            TokenTree::Punct(Punct::new('>', Spacing::Alone)),
+        ]);
+        let _ = parse_bracket_as_segments(ts, scope);
+    }
+
+    {
+        let mut ts = TokenStream::new();
+        ts.extend([
+            TokenTree::Punct(Punct::new('*', Spacing::Alone)),
+            TokenTree::Ident(Ident::new("foo", scope)),
             TokenTree::Punct(Punct::new('>', Spacing::Alone)),
         ]);
         let _ = parse_bracket_as_segments(ts, scope);
