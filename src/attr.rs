@@ -1,6 +1,6 @@
 use crate::error::Result;
 use crate::segment::{self, Segment};
-use proc_macro::{Delimiter, Group, Spacing, Span, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Group, Spacing, Span, TokenStream, TokenTree};
 use std::iter;
 use std::mem;
 use std::str::FromStr;
@@ -257,3 +257,5 @@ mod doc_tests {
     /// ```
     fn test_none_group_before_double_colon_in_attr_context() {}
 }
+
+
